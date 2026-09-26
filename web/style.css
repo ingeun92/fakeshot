@@ -1,141 +1,231 @@
+/*
+ * 판별 화면 설계 원칙
+ * 1. 중립 회색 배경: 사진을 둘러싼 색이 사진의 밝기와 색 인식을 바꾸지 않도록 무채색 중간 밝기를 쓴다.
+ * 2. 사진 테두리가 타이머: 시선을 사진에 둔 채 주변 시야로 남은 시간을 느끼게 한다.
+ * 3. 방향 먼저, 확신은 나중: 실물/AI를 크게, 확실히/아마를 작게. 바깥쪽일수록 확신이 크다.
+ * 두 편의 색은 화이트밸런스 프리셋에서 왔다: 실물 = 주광(daylight), AI = 텅스텐(tungsten).
+ */
+/* 나눔스퀘어 ac: 네이버 공식 TTF를 WOFF2로만 변환해 함께 배포한다 (SIL OFL 1.1, fonts/OFL.txt) */
+@font-face {
+  font-family: "NanumSquareAc";
+  src: url("fonts/NanumSquareAc-400.woff2") format("woff2");
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: "NanumSquareAc";
+  src: url("fonts/NanumSquareAc-700.woff2") format("woff2");
+  font-weight: 700;
+  font-display: swap;
+}
+@font-face {
+  font-family: "NanumSquareAc";
+  src: url("fonts/NanumSquareAc-800.woff2") format("woff2");
+  font-weight: 800;
+  font-display: swap;
+}
 :root {
-  --bg: #121417;
-  --panel: #1b1e23;
-  --text: #eef0f3;
-  --muted: #9aa3ad;
-  --line: #2b3038;
-  --real: #2f8f7e;
-  --real-soft: #1f4a43;
-  --ai: #c46a34;
-  --ai-soft: #5a3420;
-  --accent: #e9edf2;
+  --surround: #474849;
+  --surface: #525354;
+  --line: rgba(255, 255, 255, 0.1);
+  --ink: #f3f3f1;
+  --ink-muted: #c2c2bf;
+  --ink-on-fill: #1c1e20;
+  --daylight: #a8c6da;
+  --daylight-soft: #5a656c;
+  --tungsten: #e9be78;
+  --tungsten-soft: #6d6250;
+  /* 타이머: 형광색을 피한 차분한 초록과 빨강. 밝기 차이를 크게 두고 굵기도 바꿔 적록 색각 이상에서도 구분된다 */
+  --clock-go: #6fcf8e;
+  --clock-late: #e5484d;
 }
 * { box-sizing: border-box; }
 html {
   touch-action: manipulation;
   -webkit-text-size-adjust: 100%;
-  background: var(--bg);
+  background: var(--surround);
 }
 body {
   margin: 0;
   min-height: 100dvh;
-  color: var(--text);
-  font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", sans-serif;
+  background: var(--surround);
+  color: var(--ink);
+  font-family: "NanumSquareAc", -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
   -webkit-user-select: none;
   user-select: none;
   -webkit-tap-highlight-color: transparent;
+  word-break: keep-all;          /* 한글을 단어 단위로 줄바꿈한다 */
+  overflow-wrap: anywhere;
 }
 #app {
   max-width: 520px;
   margin: 0 auto;
-  padding: max(16px, env(safe-area-inset-top)) 16px max(16px, env(safe-area-inset-bottom));
+  padding: max(16px, env(safe-area-inset-top)) 16px max(20px, env(safe-area-inset-bottom));
   min-height: 100dvh;
   display: flex;
   flex-direction: column;
 }
-h1 { font-size: 22px; margin: 24px 0 8px; }
-h2 { font-size: 18px; margin: 20px 0 8px; }
-p, li { line-height: 1.6; font-size: 15px; }
-ul { padding-left: 20px; margin: 8px 0; }
-.muted { color: var(--muted); }
+
+/* 안내 화면 */
+h1 { font-size: 26px; line-height: 1.3; font-weight: 800; margin: 28px 0 10px; letter-spacing: -0.01em; }
+p, li { font-size: 15px; line-height: 1.65; }
+ul { padding-left: 20px; margin: 6px 0; }
+li + li { margin-top: 4px; }
+b { font-weight: 700; }
+.muted { color: var(--ink-muted); }
 .small { font-size: 13px; }
 .center { text-align: center; }
 .card {
-  background: var(--panel);
+  background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: 14px;
   padding: 14px 16px;
-  margin: 12px 0;
+  margin: 14px 0;
 }
 .spacer { flex: 1; }
 .primary {
   width: 100%;
-  padding: 16px;
+  min-height: 56px;
   margin-top: 16px;
   border: 0;
-  border-radius: 12px;
-  background: var(--accent);
-  color: #111;
+  border-radius: 14px;
+  background: var(--ink);
+  color: var(--ink-on-fill);
+  font: inherit;
   font-size: 17px;
   font-weight: 700;
   cursor: pointer;
 }
 .primary:disabled { opacity: 0.5; }
+.primary:focus-visible, .choice:focus-visible {
+  outline: 3px solid var(--ink);
+  outline-offset: 3px;
+}
 .score {
-  font-size: 44px;
+  font-size: 48px;
   font-weight: 800;
-  margin: 8px 0 0;
+  line-height: 1.1;
+  margin: 4px 0 6px;
+  font-variant-numeric: tabular-nums;
 }
 
 /* 판별 화면 */
-.trial { display: flex; flex-direction: column; align-items: center; flex: 1; }
+.trial {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+}
 .trial-top {
-  width: 100%;
   display: flex;
   justify-content: space-between;
   align-items: center;
   font-size: 14px;
-  color: var(--muted);
-  margin: 4px 0 8px;
+  color: var(--ink-muted);
+  font-variant-numeric: tabular-nums;
 }
 .tag {
-  font-size: 12px;
-  padding: 2px 8px;
+  font-size: 13px;
+  padding: 2px 10px;
   border-radius: 999px;
   border: 1px solid var(--line);
 }
 .tag:empty { display: none; }
-.timer {
-  height: 6px;
-  background: var(--line);
-  border-radius: 3px;
-  overflow: hidden;
-  margin-bottom: 10px;
-}
-.timer .bar {
-  height: 100%;
-  width: 100%;
-  background: var(--accent);
-  transform-origin: left center;
-  transform: scaleX(1);
-}
+
+/* 사진과 테두리 타이머 */
+.photo { position: relative; }
 canvas.stage {
   display: block;
-  background: #0b0c0e;
+  background: var(--surface);
   border-radius: 6px;
   touch-action: none;
   -webkit-touch-callout: none;
   -webkit-user-select: none;
   user-select: none;
 }
+.clock {
+  position: absolute;
+  inset: -7px;
+  pointer-events: none;
+  overflow: visible;
+}
+.clock rect { fill: none; stroke-width: 3; }
+.clock .track { stroke: rgba(255, 255, 255, 0.12); }
+.clock .hand {
+  stroke: var(--clock-go);
+  stroke-linecap: round;
+  stroke-dasharray: 100 100;
+  stroke-dashoffset: 0;
+  opacity: 0;
+}
+.clock .hand.late {
+  stroke: var(--clock-late);
+  stroke-width: 5;
+}
+.note {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--ink-muted);
+  pointer-events: none;
+}
+.note:empty { display: none; }
+
+/* 선택 버튼: 왼쪽 두 개는 실물, 오른쪽 두 개는 AI. 바깥쪽일수록 확실하다. */
 .choices {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 8px;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
   width: 100%;
-  margin-top: 14px;
+}
+.pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 3px;
 }
 .choice {
-  min-height: 64px;
-  border-radius: 12px;
-  border: 2px solid transparent;
-  color: var(--text);
-  font-size: 15px;
-  font-weight: 700;
-  line-height: 1.25;
+  min-height: 72px;
+  padding: 8px 4px;
+  border: 0;
+  font: inherit;
+  color: var(--ink);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
   cursor: pointer;
   touch-action: manipulation;
+  transition: transform 120ms ease-out, opacity 120ms ease-out;
 }
-.choice:disabled { opacity: 0.35; }
-.choice.real-sure { background: var(--real); }
-.choice.real-maybe { background: var(--real-soft); border-color: var(--real); }
-.choice.ai-maybe { background: var(--ai-soft); border-color: var(--ai); }
-.choice.ai-sure { background: var(--ai); }
-.legend {
-  width: 100%;
-  display: flex;
-  justify-content: space-between;
-  font-size: 12px;
-  color: var(--muted);
-  margin-top: 6px;
+.choice .qual { font-size: 13px; line-height: 1.2; }
+.choice .side { font-size: 21px; line-height: 1.2; font-weight: 800; }
+.pair .choice:first-child { border-radius: 14px 4px 4px 14px; }
+.pair .choice:last-child { border-radius: 4px 14px 14px 4px; }
+.choice.real.sure { background: var(--daylight); color: var(--ink-on-fill); }
+.choice.real.maybe { background: var(--daylight-soft); }
+.choice.ai.maybe { background: var(--tungsten-soft); }
+.choice.ai.sure { background: var(--tungsten); color: var(--ink-on-fill); }
+.choice:disabled { opacity: 0.4; cursor: default; }
+.choice:not(:disabled):active { transform: scale(0.96); }
+/* 고른 버튼은 다음 사진이 뜰 때까지 표시해 무엇을 눌렀는지 확인시킨다 */
+.choice.chosen:disabled {
+  opacity: 1;
+  box-shadow: inset 0 0 0 3px var(--ink);
+}
+
+/* 안내 화면의 버튼 미리보기 */
+.choices.preview { margin: 4px 0 2px; }
+.choices.preview .choice { min-height: 56px; cursor: default; }
+.choices.preview .choice:disabled { opacity: 1; }
+.choices.preview .side { font-size: 17px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .choice { transition: none; }
+  .choice:not(:disabled):active { transform: none; }
 }

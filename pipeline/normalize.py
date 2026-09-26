@@ -6,7 +6,7 @@
   raw/practice/real/*      연습 문항용 (채점 안 함)
   raw/practice/ai/*
 
-처리: 회전 보정, sRGB 변환, 가운데 정사각형 크롭, 1024px 리사이즈, 메타데이터 제거.
+처리: 회전 보정, sRGB 변환, 정사각형 크롭(가운데보다 살짝 위), 768px 리사이즈, 메타데이터 제거.
 결과는 무손실 PNG로 저장하고, 배포용 JPEG 압축은 build_sets.py에서 한 번만 한다.
 """
 from __future__ import annotations
@@ -18,7 +18,8 @@ from pathlib import Path
 
 from PIL import Image
 
-from pipeline.common import IMAGE_EXTS, PRIVATE, ROOT, SIZE, normalize_image, save_json
+from pipeline.common import (IMAGE_EXTS, PRIVATE, ROOT, SIZE, WATERMARK_MARGIN_PX, normalize_image,
+                             save_json, trimmed_bottom_right)
 
 
 def collect(raw: Path) -> list[dict]:
@@ -63,6 +64,10 @@ def main(argv=None) -> int:
         try:
             with Image.open(e["src"]) as img:
                 src_size = img.size
+                w, h = img.size
+                if img.getexif().get(0x0112) in (5, 6, 7, 8):   # 90도 회전 태그면 가로세로가 바뀐다
+                    w, h = h, w
+                trimmed = trimmed_bottom_right(w, h)
                 out, upscaled = normalize_image(img, args.size)
         except Exception as exc:  # 깨진 파일 하나 때문에 전체가 멈추지 않게
             failed.append((e["src"], exc))
@@ -72,6 +77,7 @@ def main(argv=None) -> int:
             "key": key, "pool": e["pool"], "label": e["label"], "category": e["category"],
             "source": str(e["src"].relative_to(ROOT) if e["src"].is_relative_to(ROOT) else e["src"]),
             "source_size": list(src_size), "upscaled": upscaled,
+            "watermark_risk": e["label"] == "ai" and trimmed < WATERMARK_MARGIN_PX,
         })
     save_json(args.out / "manifest.json", manifest)
 
@@ -86,6 +92,12 @@ def main(argv=None) -> int:
     if ups:
         print(f"\n주의: 원본 짧은 변이 {args.size}px보다 작아 확대된 이미지 {len(ups)}장 (확대 흔적이 단서가 될 수 있음)")
         for m in ups:
+            print(f"  {m['source']} {m['source_size']}")
+    risky = [m for m in manifest if m["watermark_risk"]]
+    if risky:
+        print(f"\n주의: 오른쪽 아래가 충분히 잘리지 않아 워터마크가 남을 수 있는 AI 이미지 {len(risky)}장. "
+              "세로 3:4로 다시 생성하세요.")
+        for m in risky:
             print(f"  {m['source']} {m['source_size']}")
     for src, exc in failed:
         print(f"실패: {src}: {exc}", file=sys.stderr)

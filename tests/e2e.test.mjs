@@ -11,7 +11,7 @@ import { chromium, devices } from 'playwright';
 const WEB = fileURLToPath(new URL('../web/', import.meta.url));
 const SHOTS = process.env.SHOTS_DIR;
 const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css',
-  '.json': 'application/json', '.jpg': 'image/jpeg' };
+  '.json': 'application/json', '.jpg': 'image/jpeg', '.woff2': 'font/woff2' };
 
 let server; let base; let browser;
 const items = JSON.parse(await readFile(join(WEB, 'items.json'), 'utf8'));
@@ -206,5 +206,71 @@ test('Supabase 모드: 모두 마치면 합계와 세션별 점수가 보인다'
   const text = await page.textContent('#app');
   assert.match(text, /60문항 중\s*40개 정답/);
   assert.match(text, /1차 21개, 2차 19개, 시간 초과 2개/);
+  await ctx.close();
+});
+
+test('문항 수가 다른 세트(샘플 점검용)에서도 안내 문구와 실제 문항 수가 맞다', async () => {
+  const small = [
+    ...items.filter((i) => i.set === 'P').slice(0, 2),
+    ...items.filter((i) => i.set === 'A').slice(0, 4),
+    ...items.filter((i) => i.set === 'B').slice(0, 4),
+  ];
+  const ctx = await browser.newContext({ ...devices['iPhone 13'] });
+  const page = await ctx.newPage();
+  await page.route('**/items.json', (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify(small) }));
+  await page.goto(`${base}?mock=1&reset=1&p=e2e-small`);
+  await page.getByRole('heading', { name: '진짜 사진일까, AI일까?' }).waitFor();
+  assert.match(await page.textContent('#app'), /연습 2문항과 본 문항 4개\(약 1분\)/);
+  await clickText(page, '시작하기');
+  await page.getByRole('heading', { name: '연습 문항 2개' }).waitFor();
+  await clickText(page, '연습 시작');
+  await answerMany(page, 2);
+  await page.getByRole('heading', { name: '본 문항 4개' }).waitFor();
+  await clickText(page, '본 문항 시작');
+  assert.equal(await page.locator('.trial-top span').first().textContent(), '1 / 4');
+  await answerMany(page, 4);
+  await page.getByRole('heading', { name: '2차 테스트' }).waitFor();
+  assert.match(await page.textContent('#app'), /4문항을 풉니다/);
+  assert.equal(mains(await mockDb(page), 1).length, 4);
+  await ctx.close();
+});
+
+test('연습 문항이 없는 세트는 연습 단계를 건너뛴다', async () => {
+  const noPractice = [...items.filter((i) => i.set === 'A').slice(0, 2), ...items.filter((i) => i.set === 'B').slice(0, 2)];
+  const ctx = await browser.newContext({ ...devices['iPhone 13'] });
+  const page = await ctx.newPage();
+  await page.route('**/items.json', (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify(noPractice) }));
+  await page.goto(`${base}?mock=1&reset=1&p=e2e-nopractice`);
+  await page.getByRole('heading', { name: '진짜 사진일까, AI일까?' }).waitFor();
+  assert.match(await page.textContent('#app'), /오늘은 본 문항 2개/);
+  await clickText(page, '시작하기');
+  await page.getByRole('heading', { name: '본 문항 2개' }).waitFor();
+  await clickText(page, '본 문항 시작');
+  await answerMany(page, 2);
+  await page.getByRole('heading', { name: '2차 테스트' }).waitFor();
+  await ctx.close();
+});
+
+test('타이머 테두리는 처음엔 기본 상태였다가 마지막 1.5초에 경고 상태가 되고, 다음 문항에서 원래대로 돌아온다', async () => {
+  const small = [...items.filter((i) => i.set === 'A').slice(0, 2), ...items.filter((i) => i.set === 'B').slice(0, 2)];
+  const ctx = await browser.newContext({ ...devices['iPhone 13'] });
+  const page = await ctx.newPage();
+  await page.route('**/items.json', (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify(small) }));
+  await page.goto(`${base}?mock=1&reset=1&p=e2e-clock`);
+  await clickText(page, '시작하기');
+  await clickText(page, '본 문항 시작');
+  await page.waitForSelector('.choice:enabled');
+  const late = () => page.evaluate(() => document.querySelector('.clock .hand').classList.contains('late'));
+  const stroke = () => page.evaluate(() => getComputedStyle(document.querySelector('.clock .hand')).stroke);
+  assert.equal(await late(), false);
+  const early = await stroke();
+  await page.waitForTimeout(3000);                 // 약 3.2초 경과: 아직 1.5초 이상 남음
+  assert.equal(await late(), false);
+  await page.waitForFunction(() => document.querySelector('.clock .hand').classList.contains('late'), null, { timeout: 2000 });
+  await page.waitForTimeout(300);                  // 색 전환이 끝날 시간
+  assert.notEqual(await stroke(), early);
+  await page.waitForFunction(() => document.querySelector('.note')?.textContent === '시간 초과', null, { timeout: 3000 });
+  await page.waitForSelector('.choice:enabled');   // 다음 문항
+  assert.equal(await late(), false);
   await ctx.close();
 });

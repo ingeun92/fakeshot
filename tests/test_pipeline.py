@@ -39,7 +39,7 @@ def test_published_jpeg_has_no_metadata():
     published = Image.open(io.BytesIO(encode_jpeg(out)))
     assert len(published.getexif()) == 0
     assert not published.info.get("icc_profile")
-    assert published.size == (1024, 1024)
+    assert published.size == (768, 768)
 
 
 def test_cliffs_delta_direction():
@@ -141,3 +141,46 @@ def test_rebuilding_real_sets_requires_force(built, tmp_path):
     assert (priv / "manifest_build.json").read_text() == before
     assert build_sets.main(args + ["--force"]) == 0
     assert (priv / "manifest_build.json").read_text() != before
+
+
+def _marked_ai_image(w, h, band_from_bottom=(95, 160), band_from_right=(100, 160)):
+    """Gemini처럼 오른쪽 아래에 표시(순수 자홍색)가 찍힌 이미지. 실측 워터마크는 아래 95~150px."""
+    img = Image.new("RGB", (w, h), (90, 110, 130))
+    x0, x1 = w - band_from_right[1], w - band_from_right[0]
+    y0, y1 = h - band_from_bottom[1], h - band_from_bottom[0]
+    img.paste((255, 0, 255), (x0, y0, x1, y1))
+    return img
+
+
+def _has_magenta(img):
+    import numpy as np
+    a = np.asarray(img)
+    return bool(((a[..., 0] > 200) & (a[..., 1] < 80) & (a[..., 2] > 200)).any())
+
+
+def test_gemini_portrait_watermark_is_cropped_away_with_margin():
+    out, _ = normalize_image(_marked_ai_image(896, 1200))
+    assert not _has_magenta(out)
+
+
+def test_same_crop_rule_for_real_photos_keeps_a_top_mark():
+    # 크롭 규칙은 실물과 AI에 똑같이 적용된다. 위쪽 끝에 가까운 표시는 남아야 한다(위를 덜 자른다).
+    img = Image.new("RGB", (3024, 4032), (90, 110, 130))
+    img.paste((255, 0, 255), (1400, 470, 1600, 520))       # 위에서 470~520px
+    out, _ = normalize_image(img)
+    assert _has_magenta(out)
+
+
+def test_normalize_warns_when_ai_image_may_keep_watermark(tmp_path, capsys):
+    raw = tmp_path / "raw"
+    (raw / "ai" / "food").mkdir(parents=True)
+    (raw / "real" / "food").mkdir(parents=True)
+    _marked_ai_image(1024, 1024).save(raw / "ai" / "food" / "square.png")
+    _marked_ai_image(896, 1200).save(raw / "ai" / "food" / "portrait.png")
+    Image.new("RGB", (1024, 1024), (1, 2, 3)).save(raw / "real" / "food" / "real_square.jpg")
+    assert normalize.main(["--raw", str(raw), "--out", str(tmp_path / "norm")]) == 0
+    out = capsys.readouterr().out
+    warning = out[out.index("워터마크"):]
+    assert "square.png" in warning
+    assert "portrait.png" not in warning
+    assert "real_square.jpg" not in warning

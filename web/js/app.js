@@ -7,12 +7,14 @@ const params = new URLSearchParams(location.search);
 const MOCK = params.get('mock') === '1';
 const app = document.getElementById('app');
 
+// 왼쪽 두 개는 실물, 오른쪽 두 개는 AI. 바깥쪽일수록 확실하다. 값(1~4)은 서버 기록과 같다.
 const CHOICES = [
-  { value: 1, cls: 'real-sure', html: '확실히<br>실물' },
-  { value: 2, cls: 'real-maybe', html: '아마<br>실물' },
-  { value: 3, cls: 'ai-maybe', html: '아마<br>AI' },
-  { value: 4, cls: 'ai-sure', html: '확실히<br>AI' },
+  { value: 1, side: 'real', sure: true, qual: '확실히', word: '실물' },
+  { value: 2, side: 'real', sure: false, qual: '아마', word: '실물' },
+  { value: 3, side: 'ai', sure: false, qual: '아마', word: 'AI' },
+  { value: 4, side: 'ai', sure: true, qual: '확실히', word: 'AI' },
 ];
+const SVG_NS = 'http://www.w3.org/2000/svg';
 
 blockZoom();
 start().catch(showFatal);
@@ -37,7 +39,12 @@ async function start() {
   const items = await fetch('items.json', { cache: 'no-cache' }).then((r) => r.json());
   window.addEventListener('online', () => api.flush());
   await api.flush();   // 지난 접속에서 못 보낸 응답
-  const ctx = { api, items, token };
+  // 안내 문구에 쓸 문항 수. 세트 크기가 바뀌어도(샘플 점검 등) 화면과 실제가 일치하도록 목록에서 센다.
+  const counts = {
+    practice: items.filter((it) => it.set === 'P').length,
+    main: Math.min(CONFIG.MAIN_PER_SESSION, items.filter((it) => it.set === 'A').length),
+  };
+  const ctx = { api, items, token, counts };
   routeState(ctx, await withRetry(() => api.getState()));
 }
 
@@ -47,9 +54,9 @@ function routeState(ctx, state) {
   }
   switch (state.next) {
     case 'session1':
-      return showIntro(1, () => runSession(ctx, 1, null));
+      return showIntro(1, ctx.counts, () => runSession(ctx, 1, null));
     case 'session2':
-      return showIntro(2, () => runSession(ctx, 2, null));
+      return showIntro(2, ctx.counts, () => runSession(ctx, 2, null));
     case 'resume':
       return showResumePrompt(() => runSession(ctx, state.resume.session_no, state.resume));
     case 'wait':
@@ -111,13 +118,15 @@ async function runSession(ctx, sessionNo, resumeInfo) {
   };
 
   if (!skipPractice) {
-    await showInterstitial('연습 문항 3개', '채점하지 않습니다. 버튼 위치와 5초 제한에 익숙해져 보세요.', '연습 시작');
-    mountStage(stage);
-    for (let i = 0; i < plan.practice.length; i++) {
-      preload(plan.practice, i);
-      const item = plan.practice[i];
-      const t = await runTrial(stage, item, cache, `연습 ${i + 1} / ${plan.practice.length}`, '연습');
-      api.submit(record('practice', i, item, t));
+    if (plan.practice.length) {
+      await showInterstitial(`연습 문항 ${plan.practice.length}개`, '채점하지 않습니다. 왼쪽은 실물, 오른쪽은 AI이고 확실할수록 바깥쪽을 누릅니다. 사진 테두리가 다 줄어들기 전에 고르세요.', '연습 시작');
+      mountStage(stage);
+      for (let i = 0; i < plan.practice.length; i++) {
+        preload(plan.practice, i);
+        const item = plan.practice[i];
+        const t = await runTrial(stage, item, cache, `${i + 1} / ${plan.practice.length}`, '연습');
+        api.submit(record('practice', i, item, t));
+      }
     }
     await showInterstitial(`본 문항 ${mainCount}개`, '이제부터 채점합니다. 중간에 다른 앱이나 탭으로 넘어가지 마세요.', '본 문항 시작');
   } else if (startAt < mainCount) {
@@ -161,25 +170,34 @@ function createStage() {
   const progress = el('span');
   const tag = el('span', 'tag');
   top.append(progress, tag);
-  const timer = el('div', 'timer');
-  const bar = el('div', 'bar');
-  timer.append(bar);
+  // 사진을 둘러싼 테두리가 타이머다. 트랙은 그대로 두고 위에 겹친 선이 줄어든다.
+  const photo = el('div', 'photo');
   const canvas = el('canvas', 'stage');
   canvas.addEventListener('contextmenu', (e) => e.preventDefault());
-  const choices = el('div', 'choices');
-  const stage = { root, progress, tag, timer, bar, canvas, ctx2d: canvas.getContext('2d'), buttons: [], onChoice: null };
-  for (const c of CHOICES) {
-    const b = el('button', `choice ${c.cls}`);
-    b.type = 'button';
-    b.innerHTML = c.html;
-    b.disabled = true;
-    b.addEventListener('click', () => { b.blur(); stage.onChoice?.(c.value); });
-    choices.append(b);
-    stage.buttons.push(b);
+  const clock = document.createElementNS(SVG_NS, 'svg');
+  clock.setAttribute('class', 'clock');
+  clock.setAttribute('aria-hidden', 'true');
+  const track = document.createElementNS(SVG_NS, 'rect');
+  track.setAttribute('class', 'track');
+  const hand = document.createElementNS(SVG_NS, 'rect');
+  hand.setAttribute('class', 'hand');
+  hand.setAttribute('pathLength', '100');
+  clock.append(track, hand);
+  const note = el('div', 'note');
+  note.setAttribute('aria-live', 'polite');
+  photo.append(canvas, clock, note);
+  const { node: choices, buttons } = buildChoices(false);
+  const stage = { root, top, progress, tag, photo, canvas, clock, track, hand, note, choices, buttons,
+    ctx2d: canvas.getContext('2d'), onChoice: null };
+  for (const b of buttons) {
+    b.addEventListener('click', () => {
+      b.blur();
+      if (!stage.onChoice) return;
+      b.classList.add('chosen');
+      stage.onChoice(Number(b.dataset.value));
+    });
   }
-  const legend = el('div', 'legend');
-  legend.append(el('span', '', '← 실제 사진'), el('span', '', 'AI 생성 →'));
-  root.append(top, timer, canvas, choices, legend);
+  root.append(top, photo, choices);
   return stage;
 }
 
@@ -194,9 +212,19 @@ function sizeStage(stage) {
   stage.canvas.style.height = `${size}px`;
   stage.canvas.width = Math.round(size * dpr);
   stage.canvas.height = Math.round(size * dpr);
-  stage.timer.style.width = `${size}px`;
-  stage.root.querySelector('.choices').style.maxWidth = `${Math.max(size, 320)}px`;
-  stage.root.querySelector('.legend').style.maxWidth = `${Math.max(size, 320)}px`;
+  const frame = size + 14;   // 사진 바깥 7px에 테두리를 그린다
+  stage.clock.setAttribute('width', frame);
+  stage.clock.setAttribute('height', frame);
+  stage.clock.setAttribute('viewBox', `0 0 ${frame} ${frame}`);
+  for (const r of [stage.track, stage.hand]) {
+    r.setAttribute('x', 1.5);
+    r.setAttribute('y', 1.5);
+    r.setAttribute('width', frame - 3);
+    r.setAttribute('height', frame - 3);
+    r.setAttribute('rx', 11);
+  }
+  stage.top.style.width = `${size}px`;
+  stage.choices.style.width = `${Math.max(size, 300)}px`;
   return size;
 }
 
@@ -204,12 +232,15 @@ async function runTrial(stage, item, cache, progressText, tagText, onShow) {
   stage.progress.textContent = progressText;
   stage.tag.textContent = tagText;
   setButtons(stage, false);
-  resetBar(stage);
+  resetClock(stage);
   const size = sizeStage(stage);
   stage.ctx2d.clearRect(0, 0, stage.canvas.width, stage.canvas.height);
 
   if (!cache.has(item.file)) cache.set(item.file, loadImage(item.file));
   const [img] = await Promise.all([cache.get(item.file), sleep(CONFIG.BLANK_MS)]);
+  // 빈 화면 동안 보여 준 직전 선택 표시와 시간 초과 문구를 치운다
+  for (const b of stage.buttons) b.classList.remove('chosen');
+  stage.note.textContent = '';
   if (!img) return { outcome: 'abandoned', rendered_px: size };
 
   onShow?.();
@@ -225,7 +256,7 @@ async function runTrial(stage, item, cache, progressText, tagText, onShow) {
   const onBlur = () => { lostFocus = true; };
   document.addEventListener('visibilitychange', onVisibility);
   window.addEventListener('blur', onBlur);
-  startBar(stage, CONFIG.TIME_LIMIT_MS);
+  startClock(stage, CONFIG.TIME_LIMIT_MS);
   const guard = setTimeout(() => setButtons(stage, true), CONFIG.INPUT_GUARD_MS);
 
   const result = await new Promise((resolve) => {
@@ -252,7 +283,8 @@ async function runTrial(stage, item, cache, progressText, tagText, onShow) {
   window.removeEventListener('blur', onBlur);
   setButtons(stage, false);
   stage.ctx2d.clearRect(0, 0, stage.canvas.width, stage.canvas.height);
-  resetBar(stage);
+  resetClock(stage);
+  if (!result.choice) stage.note.textContent = '시간 초과';
 
   return {
     outcome: result.choice ? 'answered' : 'timeout',
@@ -268,15 +300,44 @@ function setButtons(stage, enabled) {
   for (const b of stage.buttons) b.disabled = !enabled;
 }
 
-function resetBar(stage) {
-  stage.bar.style.transition = 'none';
-  stage.bar.style.transform = 'scaleX(1)';
+// 빈 화면 동안에는 타이머 선을 숨겨, 시간이 이미 흐르는 것처럼 보이지 않게 한다.
+function resetClock(stage) {
+  clearTimeout(stage.lateTimer);
+  stage.hand.classList.remove('late');
+  stage.hand.style.transition = 'none';
+  stage.hand.style.strokeDashoffset = '0';
+  stage.hand.style.opacity = '0';
 }
 
-function startBar(stage, ms) {
-  void stage.bar.offsetWidth;   // 초기 상태를 먼저 반영시킨다
-  stage.bar.style.transition = `transform ${ms}ms linear`;
-  stage.bar.style.transform = 'scaleX(0)';
+// 남은 시간이 WARN_MS가 되면 초록에서 빨강으로, 선도 굵게 바꾼다.
+function startClock(stage, ms) {
+  void stage.hand.getBoundingClientRect();   // 초기 상태를 먼저 반영시킨다
+  stage.hand.style.opacity = '1';
+  stage.hand.style.transition = `stroke-dashoffset ${ms}ms linear, stroke 200ms ease-out, stroke-width 200ms ease-out`;
+  stage.hand.style.strokeDashoffset = '100';
+  stage.lateTimer = setTimeout(() => stage.hand.classList.add('late'), Math.max(0, ms - (CONFIG.WARN_MS ?? 1500)));
+}
+
+// 선택 버튼 네 개. 안내 화면의 미리보기(preview)에도 같은 모양을 쓴다.
+function buildChoices(preview) {
+  const node = el('div', preview ? 'choices preview' : 'choices');
+  const buttons = [];
+  for (const side of ['real', 'ai']) {
+    const pair = el('div', `pair ${side}`);
+    for (const c of CHOICES.filter((x) => x.side === side)) {
+      const b = el('button', `choice ${c.side} ${c.sure ? 'sure' : 'maybe'}`);
+      b.type = 'button';
+      b.disabled = true;
+      b.dataset.value = String(c.value);
+      b.setAttribute('aria-label', `${c.qual} ${c.word}`);
+      b.append(el('span', 'qual', c.qual), el('span', 'side', c.word));
+      pair.append(b);
+      buttons.push(b);
+    }
+    node.append(pair);
+  }
+  if (preview) node.setAttribute('aria-hidden', 'true');
+  return { node, buttons };
 }
 
 async function loadImage(src, tries = 2) {
@@ -296,34 +357,39 @@ async function loadImage(src, tries = 2) {
 
 // ── 화면 ───────────────────────────────────────────────────
 
-function showIntro(sessionNo, onStart) {
+function showIntro(sessionNo, counts, onStart) {
+  const practiceText = counts.practice ? `연습 ${counts.practice}문항과 ` : '';
+  const minutes = Math.max(1, Math.round(((counts.practice + counts.main) * 6) / 60));
   const wrap = el('div');
   if (sessionNo === 1) {
     wrap.innerHTML = `
       <h1>진짜 사진일까, AI일까?</h1>
       <p>사진이 한 장씩 나옵니다. 실제로 촬영한 사진인지 AI가 만든 이미지인지 골라 주세요.</p>
-      <div class="card">
-        <ul>
-          <li>문항마다 <b>5초</b> 안에 골라야 합니다. 첫인상대로 고르면 됩니다.</li>
-          <li>이미지는 확대할 수 없습니다.</li>
-          <li>푸는 동안 다른 앱이나 탭으로 넘어가지 마세요. 넘어가면 기록됩니다.</li>
-          <li>문제나 답을 다른 사람과 이야기하지 말아 주세요.</li>
-        </ul>
+      <div class="card how">
+        <p>왼쪽은 실물, 오른쪽은 AI입니다. 확실할수록 바깥쪽을 누르세요.</p>
+        <p class="muted small">사진 테두리가 다 줄어들기 전, <b>5초</b> 안에 첫인상대로 고르면 됩니다.</p>
       </div>
-      <p>오늘은 연습 3문항과 본 문항 30개(약 3분)입니다. 다음 날 <b>같은 링크</b>로 30문항을 한 번 더 풉니다. 끝날 때마다 점수를 알려 드립니다.</p>
+      <ul>
+        <li>사진은 확대할 수 없습니다.</li>
+        <li>푸는 동안 다른 앱이나 탭으로 넘어가지 마세요. 넘어가면 기록됩니다.</li>
+        <li>문제나 답을 다른 사람과 이야기하지 말아 주세요.</li>
+      </ul>
+      <p>오늘은 ${practiceText}본 문항 ${counts.main}개(약 ${minutes}분)입니다. 다음 날 <b>같은 링크</b>로 ${counts.main}문항을 한 번 더 풉니다. 끝날 때마다 점수를 알려 드립니다.</p>
       <p class="muted small">응답, 응답 시간, 화면 크기 정보만 익명으로 저장합니다.</p>`;
   } else {
     wrap.innerHTML = `
       <h1>2차 테스트</h1>
-      <p>어제와 같은 방식으로 30문항을 풉니다. 모두 새로운 사진입니다.</p>
+      <p>어제와 같은 방식으로 ${counts.main}문항을 풉니다. 모두 새로운 사진입니다.</p>
       <div class="card">
         <ul>
-          <li>문항마다 <b>5초</b>, 확대 없음</li>
+          <li>사진 테두리가 다 줄어들기 전(5초)에 고르고, 확대는 안 됩니다.</li>
           <li>푸는 동안 다른 앱이나 탭으로 넘어가지 마세요.</li>
         </ul>
       </div>
       <p>마치면 2차 점수와 1차, 2차 합계를 알려 드립니다.</p>`;
   }
+  const how = wrap.querySelector('.how');
+  if (how) how.firstElementChild.after(buildChoices(true).node);
   const btn = button('시작하기', onStart);
   app.replaceChildren(wrap, el('div', 'spacer'), btn);
 }

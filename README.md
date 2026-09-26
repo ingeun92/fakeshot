@@ -35,7 +35,7 @@ raw/
 
 - 폰 3~4대로 나눠 찍는다. 한 기종으로만 찍으면 그 폰 특유의 색감이 실물의 특징이 된다.
 - 기본 카메라 앱으로 필터와 보정 없이 찍는다. HEIC 파일도 그대로 넣으면 된다.
-- 가운데를 정사각형으로 잘라 쓰므로 피사체를 화면 가운데에 둔다.
+- 정사각형으로 잘라 쓰므로 피사체를 화면 가운데에 둔다. 세로 사진은 위아래가 잘린다.
 - 인물은 초상권 동의를 받은 경우에만 넣는다.
 
 AI 이미지는 이렇게 만든다.
@@ -43,18 +43,23 @@ AI 이미지는 이렇게 만든다.
 - 실물과 같은 카테고리로, 폰으로 대충 찍은 듯한 분위기에 맞춘다. 다만 실물 사진의 장면을 그대로 복제하지는 않는다. 모든 참가자가 모든 문항을 보기 때문에 비슷한 두 장이 나오면 비교해서 추론할 수 있다.
 - 실물 사진을 넣어 변형하는 방식(image-to-image)은 쓰지 않는다.
 - 2~3개 모델로 나눠 만든다.
-- 짧은 변이 1024px 이상이 되게 생성한다. 작으면 확대 흔적이 단서가 된다.
-- 눈에 보이는 워터마크나 로고가 찍혀 나오는 모델은 그 부분을 잘라 내거나 해당 이미지를 쓰지 않는다. 파이프라인은 메타데이터만 지우고 픽셀에 박힌 표시는 지우지 못한다.
+- 세로 3:4로 생성한다. 실물처럼 가장자리가 잘린 구도가 되고, Gemini 앱이 오른쪽 아래에 넣는 워터마크도 정사각형으로 자를 때 함께 잘려 나간다. 정사각형으로 생성하면 워터마크가 남으므로 `normalize`가 경고한다.
+- 워터마크를 편집 도구로 지우지 않는다. AI 이미지에만 편집 흔적이 남아 새 단서가 된다.
+- 짧은 변이 768px 이상이면 된다(Gemini 기본 출력 896×1200은 충분하다). 작으면 확대 흔적이 단서가 된다.
+- 다른 모델이 워터마크를 다른 위치에 넣는다면 그 이미지는 쓰지 않는다. 파이프라인은 메타데이터만 지우고 픽셀에 박힌 표시는 지우지 못한다.
 
 ## 2. 파이프라인
 
 ```
-uv run python -m pipeline.normalize          # raw/ → private/normalized/
-uv run python -m pipeline.check_shortcuts    # 지름길 점검 → private/check/
-uv run python -m pipeline.build_sets         # web/img, web/items.json, private/seed_items.sql
+uv run python -m pipeline.normalize                                   # raw/ → private/normalized/
+uv run python -m pipeline.suggest_exclusions --write private/exclude.txt  # 여분 중 뺄 이미지 제안
+uv run python -m pipeline.check_shortcuts                             # 지름길 점검 → private/check/
+uv run python -m pipeline.build_sets                                  # web/img, web/items.json, private/seed_items.sql
 ```
 
-- `normalize`는 회전 보정, sRGB 변환, 가운데 정사각형 크롭, 1024px 리사이즈, 메타데이터 제거를 한다.
+- `normalize`는 회전 보정, sRGB 변환, 정사각형 크롭, 768px 리사이즈, 메타데이터 제거를 한다. 크롭은 가운데보다 살짝 위(가로 사진은 왼쪽)를 기준으로 해서 오른쪽 아래를 조금 더 잘라낸다. 실물과 AI에 똑같이 적용된다.
+- `suggest_exclusions`는 카테고리마다 실물과 AI를 6장씩만 남기고(`--keep-per-category`), 나머지 여분 중 어떤 것을 빼야 두 그룹의 밝기, 대비, 색 차이가 가장 줄어드는지 찾아 `exclude.txt`에 원본 경로로 적는다. 기존 `exclude.txt`는 덮어쓰지 않는다.
+- `exclude.txt`에는 정규화 key(`main-ai-food-0012`) 대신 원본 경로(`raw/ai/food/x.png`)를 적는 편이 안전하다. key는 사진을 추가하면 번호가 밀린다.
 - `check_shortcuts`는 밝기, 대비, 채도, 선명도, 노이즈, 파일 용량을 실물과 AI 사이에서 비교한다. "차이 있음"이 나오면 제안된 이미지의 key를 `private/exclude.txt`에 한 줄씩 적고 다시 돌린다. `private/check/contact_real.jpg`와 `contact_ai.jpg`를 나란히 놓고 눈으로도 비교한다.
 - `build_sets`는 세트와 절반을 배정하고 이미지를 무작위 이름으로 저장한 뒤, 정답이 새어 나갈 단서가 없는지 자동으로 점검한다.
 

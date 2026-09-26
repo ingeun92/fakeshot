@@ -14,7 +14,7 @@ import numpy as np
 from PIL import Image, ImageDraw
 from scipy.stats import mannwhitneyu
 
-from pipeline.common import PRIVATE, as_array, encode_jpeg, load_json
+from pipeline.common import PRIVATE, as_array, encode_jpeg, load_exclusions, load_json
 
 DELTA_WARN = 0.33      # Cliff's delta 중간 효과 기준
 LOO_WARN = 0.70        # 단순 분류기 정확도 경고 기준
@@ -106,9 +106,9 @@ def main(argv=None) -> int:
     args = ap.parse_args(argv)
 
     manifest = load_json(args.normalized / "manifest.json")
-    excluded = set()
-    if args.exclude.exists():
-        excluded = {ln.strip() for ln in args.exclude.read_text().splitlines() if ln.strip() and not ln.startswith("#")}
+    excluded, unmatched = load_exclusions(args.exclude, manifest)
+    for line in unmatched:
+        print(f"경고: exclude.txt의 '{line}'에 해당하는 이미지가 없습니다.", file=sys.stderr)
     main_items = [m for m in manifest if m["pool"] == "main" and m["key"] not in excluded]
     real = [m for m in main_items if m["label"] == "real"]
     ai = [m for m in main_items if m["label"] == "ai"]

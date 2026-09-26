@@ -16,7 +16,7 @@ from pathlib import Path
 from PIL import Image
 
 from pipeline.check_leak import check as check_leak
-from pipeline.common import PRIVATE, WEB, encode_jpeg, load_json, save_json
+from pipeline.common import PRIVATE, WEB, encode_jpeg, load_exclusions, load_json, save_json
 
 
 def spread_by_category(items: list[dict], rng: random.Random) -> list[dict]:
@@ -96,9 +96,10 @@ def main(argv=None) -> int:
         print("--per-class는 짝수여야 두 세트에 똑같이 나눌 수 있습니다.", file=sys.stderr)
         return 1
     manifest = load_json(args.normalized / "manifest.json")
-    excluded = set()
-    if args.exclude.exists():
-        excluded = {ln.strip() for ln in args.exclude.read_text().splitlines() if ln.strip() and not ln.startswith("#")}
+    excluded, unmatched = load_exclusions(args.exclude, manifest)
+    if unmatched:
+        print("exclude.txt에 해당 이미지가 없는 줄이 있습니다. 확인 후 다시 실행하세요:", *unmatched, sep="\n  ", file=sys.stderr)
+        return 1
     usable = [m for m in manifest if m["key"] not in excluded]
     by_label = {lab: [m for m in usable if m["pool"] == "main" and m["label"] == lab] for lab in ("real", "ai")}
     practice = [m for m in usable if m["pool"] == "practice"]
