@@ -125,3 +125,10 @@ def test_sessions_with_too_few_valid_answers_are_listed_with_reason():
     report = analyze(rows, set(), min_valid=20)
     assert "p1… 1차 (유효 응답 15개)" in report
     assert "둘 다 2명" in report
+
+
+def test_participant_list_saved_by_excel_in_cp949_is_read(tmp_path):
+    # 한국어 윈도우 엑셀은 CSV를 CP949로 저장한다
+    pcsv = tmp_path / "participants.csv"
+    pcsv.write_bytes("no,token,order_group,link,name,exclude\n1,p0,AB,,김본인,1\n2,p1,BA,,이친구,\n".encode("cp949"))
+    assert load_excluded(pcsv, []) == {"p0"}

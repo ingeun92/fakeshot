@@ -19,6 +19,8 @@ from pathlib import Path
 import numpy as np
 from scipy import stats
 
+from pipeline.common import read_csv_rows
+
 ROOT = Path(__file__).resolve().parent.parent
 PRIVATE = ROOT / "private"
 
@@ -64,10 +66,9 @@ def load_export(path: Path) -> list[dict]:
 def load_excluded(participants_csv: Path, extra: list[str]) -> set[str]:
     excluded = set(t for t in extra if t)
     if participants_csv.exists():
-        with participants_csv.open(encoding="utf-8") as f:
-            for r in csv.DictReader(f):
-                if str(r.get("exclude", "")).strip() in {"1", "y", "yes", "true", "o"}:
-                    excluded.add(r["token"])
+        for r in read_csv_rows(participants_csv):
+            if str(r.get("exclude", "")).strip() in {"1", "y", "yes", "true", "o"}:
+                excluded.add(r["token"])
     return excluded
 
 

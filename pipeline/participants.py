@@ -12,7 +12,7 @@ import secrets
 import sys
 from pathlib import Path
 
-from pipeline.common import PRIVATE
+from pipeline.common import PRIVATE, read_csv_rows
 
 
 def main(argv=None) -> int:
@@ -29,8 +29,7 @@ def main(argv=None) -> int:
         if not args.add:
             print(f"{csv_path} 가 이미 있습니다. 링크를 더 만들려면 --add 를 붙이세요.", file=sys.stderr)
             return 1
-        with csv_path.open(encoding="utf-8") as f:
-            rows = list(csv.DictReader(f))
+        rows = read_csv_rows(csv_path)
 
     base = args.base_url if args.base_url.endswith("/") else args.base_url + "/"
     existing = {r["token"] for r in rows}
@@ -46,7 +45,7 @@ def main(argv=None) -> int:
     rows += new_rows
 
     args.private.mkdir(parents=True, exist_ok=True)
-    with csv_path.open("w", encoding="utf-8", newline="") as f:
+    with csv_path.open("w", encoding="utf-8-sig", newline="") as f:   # BOM: 엑셀에서 한글이 깨지지 않게
         w = csv.DictWriter(f, fieldnames=["no", "token", "order_group", "link", "name", "exclude"])
         w.writeheader()
         w.writerows(rows)

@@ -91,6 +91,18 @@ def save_json(path: Path, data) -> None:
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
+def read_csv_rows(path: Path) -> list[dict]:
+    """CSV를 읽는다. 엑셀에서 고쳐 저장하면 UTF-8(BOM 포함)이나 CP949가 되므로 둘 다 받는다."""
+    import csv
+    import io
+    raw = path.read_bytes()
+    try:
+        text = raw.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        text = raw.decode("cp949")
+    return list(csv.DictReader(io.StringIO(text)))
+
+
 def as_array(img: Image.Image) -> np.ndarray:
     return np.asarray(img, dtype=np.float64)
 

@@ -184,3 +184,15 @@ def test_normalize_warns_when_ai_image_may_keep_watermark(tmp_path, capsys):
     assert "square.png" in warning
     assert "portrait.png" not in warning
     assert "real_square.jpg" not in warning
+
+
+def test_adding_links_keeps_names_written_in_excel(tmp_path):
+    args = ["--n", "2", "--base-url", "https://x.example", "--private", str(tmp_path)]
+    assert participants.main(args) == 0
+    pcsv = tmp_path / "participants.csv"
+    text = pcsv.read_text(encoding="utf-8-sig").replace(",,\n", ",김본인,1\n", 1)
+    pcsv.write_bytes(text.encode("cp949"))                     # 엑셀에서 이름을 적고 저장
+    assert participants.main(args + ["--add"]) == 0
+    rows = pcsv.read_text(encoding="utf-8-sig").splitlines()
+    assert rows[1].endswith(",김본인,1")
+    assert len(rows) == 1 + 4
