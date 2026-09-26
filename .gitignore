@@ -1,0 +1,25 @@
+# 정답과 원본 사진은 절대 커밋하지 않는다
+private/
+raw/
+
+# 배포용 문항 이미지와 목록. 공개 저장소에 실제 사진이 올라가지 않도록 빌드 결과는 제외한다.
+# (pipeline.build_sets 로 생성하고, 배포는 web 폴더를 직접 올린다)
+web/img/*
+!web/img/.gitkeep
+web/items.json
+
+# Claude Code
+CLAUDE.md
+CLAUDE.local.md
+.claude/
+.mcp.json
+WORKLOG.md
+
+# Python
+.venv/
+__pycache__/
+.pytest_cache/
+
+# 테스트 도구
+tests/node_modules/
+tests/.libs/

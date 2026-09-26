@@ -1,0 +1,13 @@
+{
+  "name": "fakeshot-tests",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test schema.test.mjs lib.test.mjs",
+    "test:e2e": "LD_LIBRARY_PATH=$PWD/.libs node --test e2e.test.mjs"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.8",
+    "playwright": "^1.63.0"
+  }
+}
